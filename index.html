@@ -3,11 +3,9 @@ layout: default
 title: jbaldwin's Blog
 ---
 
-<h1>Welcome</h1>
-
+<h3>Posts</h3>
+<hr />
 <u1>
-    <h3>Posts</h3>
-    <hr />
     {% for post in site.posts %}
         <li>
             <p><a href="{{ post.url }}">{{ post.date | date: "%Y-%m-%d" }} {{ post.title }}</a></p>
