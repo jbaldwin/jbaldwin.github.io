@@ -1,8 +1,7 @@
 ---
 layout: default
-title: About
 ---
 
-# About jbaldwin
+# About Me
 
-At some point I'll put some real words here.  I am a software engineer interested in performance, throughput, and in general learning anything cool.
+Hi, I'm Josh Baldwin.  I'm a programmer at heart, gamer, skier, hiker, and I work in Denver Colorado at SpotX.  This blog and all of its content and opinions are my own.  I blog about technology that interests me, generally on performance, C++, and the web.
