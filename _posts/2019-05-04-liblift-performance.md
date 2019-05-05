@@ -31,7 +31,7 @@ I can see how much CPU each process is using.  It can also show when you are usi
 
 We'll setup a simple hello world HTTP page on `nginx` to fetch as quickly as possible, here are the important snippets of the `nginx` config:
 
-```json
+```
 worker_processes 1; // we'll adjust this as nginx becomes the bottleneck, but start with 1 for simplicity
 
 events {
@@ -83,17 +83,16 @@ $ ./wrk  -c 10 -t 1 -d 30s "http://localhost:1057/hello_world.html"
 Running 30s test @ http://localhost:1057/hello_world.html
   1 threads and 10 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency    76.99us   76.64us   6.50ms   95.76%
-    Req/Sec   119.68k     9.93k  141.78k    66.67%
-  3571309 requests in 30.00s, 18.91GB read
-Requests/sec: 119036.92
-Transfer/sec:    645.37MB
+    Latency   195.97us   74.28us   6.25ms   96.29%
+    Req/Sec    51.34k     2.86k   54.92k    90.00%
+  1532694 requests in 30.00s, 8.11GB read
+Requests/sec:  51088.42
+Transfer/sec:    276.98MB
 ```
 
 Ok, we got a very different result, the bottleneck in the first test was the number of connections we allowed `wrk` to use.
-By adding 9 more connections `wrk`'s performance increased by 290%, almost three times faster.  We are not getting a linear
-performance increase but we are identifying where the bottlenecks are!  We increased the number of connections for `wrk`, but 
-we haven't increased the number of workers for `nginx, lets try that next.
+By adding 9 more connections `wrk`'s performance increased by about 40%.  We are not getting a linear
+performance increase but we are identifying where the bottlenecks are!  We increased the number of connections for `wrk`, but we haven't increased the number of workers for `nginx, lets try that next.
 
 ```bash
 sudo vi /etc/nginx/nginx.conf
@@ -116,23 +115,8 @@ Requests/sec:  90897.41
 Transfer/sec:    492.81MB
 ```
 
-It appears we had a degreation in performance by adding another worker to `nginx` in the same scenario, why could that be?
-Perhaps there are not enough connections to saturate `nginx` again or there is overhead in `nginx` across its workers.
-Lets try bumping up the number of connections again in `wrk` and see if we get a better result.  We'll also try running
-`wrk` with two worker threads as well.
-
-```bash
-$ ./wrk  -c 10 -t 1 -d 30s "http://localhost:1057/hello_world.html"
-Running 30s test @ http://localhost:1057/hello_world.html
-  1 threads and 10 connections
-  Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency   109.50us  108.56us   6.41ms   97.51%
-    Req/Sec    91.40k     5.47k  102.51k    70.00%
-  2726966 requests in 30.00s, 14.44GB read
-Requests/sec:  90897.41
-Transfer/sec:    492.81MB
-
-...
+Now we are getting another 43% increase in qps by adding an `nginx` worker process.  Lets try one more test with two
+`wrk` worker threads and also bump the connection count to 100.
 
 $ ./wrk  -c 100 -t 2 -d 30s "http://localhost:1057/hello_world.html"
 Running 30s test @ http://localhost:1057/hello_world.html
@@ -145,9 +129,69 @@ Requests/sec:  90453.23
 Transfer/sec:    490.40MB
 ```
 
-It seems we've hit a limit with our current setup.  We can take the best qps, 119036, with `wrk` settings being 10 connections and 1 worker thread.
-`nginx running with a single worker processor.  I'm sure we could run a lot more tests and get better results, but for this liblifthttp benchmark
-lets see how close we can get to our simple qps achieved from `wrk` and `nginx`.
+It seems we've hit a limit with our current setup.  We can take the best qps, ~91,000, with `wrk` settings being 10 connections and 1 worker thread and `nginx` having two worker processes.  I'm sure we could run a lot more tests and get better results, but for this liblifthttp benchmark lets see how close we can get to our simple qps achieved from `wrk` and `nginx`.
+
+## Benchmarking lift
+
+Lift comes with a simple benchmark utility in its examples source directory.  For this test we'll be using this tool.
+I would like to note that `wrk` only creates the request body once and re-uses the stringified version of it for each
+subsequent request.  Lift also does something similar in this test, however there are differences in the responses.
+`wrk` does minimal processing on the response to make it as fast as possible, lift however does a full parse on the
+response.  I am pointing out this difference as it will most likely result in a slower speed for lift, however it is
+much more realistic in that a real world scenario will require the client to parse http responses.  Lets get started.
+
+As a quick setup we'll build lift first, this will include building the examples as well as the benchmark utility.
+
+```bash
+$ cd ~/github/liblifthttp
+$ mkdir Release && cd release
+$ cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS_RELEASE="-O2" ..
+$ make -j4
+$ cd bin && ls // produces 'benchmark_simple'
+$ ./benchmark_simple 
+./benchmark_simple <url> <duration_seconds> <connections> <threads>
+```
+
+The CLI for the benchmark is similiar to `wrk` but doesn't use getopts yet, so it expects the parameters in a specific 
+order.  Here is our benchmark command: `./benhmark_simple "http://localhost:1057/hello_world.html" 30 1 1`  Lets see how
+it does!  I have set `nginx` back to a single worker process to start.
+
+```bash
+$ ./benchmark_simple "http://localhost:1057/hello_world.html" 30 1 1
+  Thread Stats    Avg
+    Req/sec     20155.4
+  604662 requests in 30s
+Requests/sec: 20155.4
+Event loop is no longer accepting requests.
+```
+
+In this use case `wrk` is about 33% faster.  Lets try with 10 connections to see the difference.
+
+```bash
+$ ./benchmark_simple "http://localhost:1057/hello_world.html" 30 10 1
+  Thread Stats    Avg
+    Req/sec     40128.8
+  1203863 requests in 30s
+Requests/sec: 40128.8
+```
+
+`wrk` is about 22% faster in this use case.  Here is the breakdown for all of the use cases run.  Note that the CPU
+this is running against is 4 core with hyper threading for 8 threads, this is why I stopped the benchmark at 4/4 for
+client/server threads.
+
+| Connections | client threads | server threads | wrk qps | lift qps | % diff |
+|-------------|----------------|----------------|--------:|---------:|-------:|
+| 1           | 1              | 1              | 30,065  | 20,155   |        |
+| 10          | 1              | 1              | 50,131  | 39,571   |        |
+| 10          | 1              | 2              | 90,370  | 37,337   |        |
+| 10          | 2              | 2              | 84,965  |          |        |
+| 100         | 2              | 2              | 95,402  |          |        |
+| 100         | 2              | 4              | 169,272 |          |        |
+| 100         | 4              | 4              | 158,059 |          |        |
+
+
+
+
 
 
 
