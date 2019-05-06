@@ -162,7 +162,6 @@ $ ./benchmark_simple "http://localhost:1057/hello_world.html" 30 1 1
     Req/sec     20155.4
   604662 requests in 30s
 Requests/sec: 20155.4
-Event loop is no longer accepting requests.
 ```
 
 In this use case `wrk` is about 33% faster.  Lets try with 10 connections to see the difference.
@@ -181,15 +180,15 @@ client/server threads.
 
 | Connections | client threads | server threads | wrk qps | lift qps | % diff |
 |-------------|----------------|----------------|--------:|---------:|-------:|
-| 1           | 1              | 1              | 30,065  | 20,155   |        |
-| 10          | 1              | 1              | 50,131  | 39,571   |        |
-| 10          | 1              | 2              | 90,370  | 37,337   |        |
-| 10          | 2              | 2              | 84,965  |          |        |
-| 100         | 2              | 2              | 95,402  |          |        |
-| 100         | 2              | 4              | 169,272 |          |        |
-| 100         | 4              | 4              | 158,059 |          |        |
+| 1           | 1              | 1              | 30,065  | 20,155   | 33%    |
+| 10          | 1              | 1              | 50,131  | 39,571   | 21%    |
+| 10          | 1              | 2              | 90,370  | 40,031   | 55%    |
+| 10          | 2              | 2              | 84,965  | 81,539   | 4%     |
+| 100         | 2              | 2              | 95,402  | 74,587   | 21%    |
+| 100         | 2              | 4              | 169,272 | 64,520   | 61%    |
+| 100         | 4              | 4              | 158,059 | 104,146  | 34%    |
 
-
+`wrk` is more consistent in its throughput, but both applications show strange regressions at certain points in these tests, lift showing significantly more regression when it occurs.  Another conclusion to draw here is that lift is using significantly more CPU than `wrk`, since upping server threads does not increase the qps throughput, but increasing the client threads does.  In the next article I will be analyzing the `perf` stats as well as CPU usage of both applications to see if we can understand exactly why these are the results.  However, considering lift is built upon `libcurl` for http parsing and `libuv` for its underlying event loop, I would say these stats are pretty good.  If I had to guess what I think lift's downside is performance wise, it is most likely in the curl http parser and that is what needs to be optimized to get on par with `wrk`'s throughput.  It is worth considering that users of curl get 20+ years of bug fixes and history of http, thats not something to take for granted!
 
 
 
